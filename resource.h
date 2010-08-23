@@ -20,6 +20,7 @@ Author:
 // ---------------------------------------------------------------- Definitions
 //
 
+#define IDS_DESCRIPTION 1
 #define ID_ICON 100
 
 //

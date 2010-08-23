@@ -1,6 +1,11 @@
 #include <windows.h>
 #include "resource.h"
 
+STRINGTABLE
+BEGIN
+    IDS_DESCRIPTION, "Starry Night"
+END
+
 ID_ICON ICON DISCARDABLE "starryn.ico"
 
 IDD_MAIN_WINDOW DIALOG 6, 18, UI_INITIAL_WIDTH, UI_INITIAL_HEIGHT
