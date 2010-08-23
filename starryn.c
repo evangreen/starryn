@@ -60,6 +60,12 @@ Environment:
 #define KEY_BUILDINGS_PER_UPDATE "BuildingsPerUpdate"
 #define KEY_RAIN_PER_UPDATE "RainPerUpdate"
 #define KEY_FLASHER_PERIOD "FlasherPeriod"
+#define KEY_SHOOTING_STAR_PERIOD "ShootingStarPeriod"
+#define KEY_SHOOTING_STAR_DURATION "ShootingStarDuration"
+#define KEY_SHOOTING_STAR_WIDTH "ShootingStarWidth"
+#define KEY_MAX_SHOOTING_SPEED_X "MaxShootingSpeedX"
+#define KEY_MAX_SHOOTING_SPEED_Y "MaxShootingSpeedY"
+#define KEY_MIN_SHOOTING_SPEED_Y "MinShootingSpeedY"
 
 //
 // ------------------------------------------------------ Data Type Definitions
@@ -148,6 +154,12 @@ SnpDrawFlasher (
     HDC Dc
     );
 
+VOID
+SnpDrawShootingStar (
+    ULONG TimeElapsed,
+    HDC Dc
+    );
+
 BOOLEAN
 SnpTakeInParameters (
     HWND Window
@@ -172,13 +184,13 @@ BOOLEAN ScreenSaverWindowed = FALSE;
 // Starry Night Configuration.
 //
 
-ULONG SnTimerRateMs = 100;
+ULONG SnTimerRateMs = 50;
 COLORREF SnBackground = RGB(0, 0, 0);
 COLORREF SnBuildingColor = RGB(248, 241, 3);
-ULONG SnStarsPerUpdate = 50;
-ULONG SnBuildingPixelsPerUpdate = 50;
+ULONG SnStarsPerUpdate = 12;
+ULONG SnBuildingPixelsPerUpdate = 15;
 ULONG SnBuildingCount = 100;
-ULONG SnBuildingHeightPercent = 25;
+ULONG SnBuildingHeightPercent = 35;
 ULONG SnMinBuildingWidth = 5;
 ULONG SnMaxBuildingWidth = 18;
 ULONG SnMinRainWidth = 2;
@@ -186,6 +198,12 @@ ULONG SnMaxRainWidth = 16;
 ULONG SnRainDropsPerUpdate = 15;
 BOOLEAN SnFlasherEnabled = TRUE;
 ULONG SnFlasherPeriodMs = 1700;
+ULONG SnMaxShootingStarPeriodMs = 25000;
+ULONG SnMaxShootingStarDurationMs = 1000;
+float SnMaxShootingStarSpeedX = 3.0;
+float SnMinShootingStarSpeedY = 0.1;
+float SnMaxShootingStarSpeedY = 1.0;
+ULONG SnMaxShootingStarWidth = 4;
 
 //
 // Starry Night State.
@@ -208,6 +226,13 @@ ULONG SnFlasherY = 0;
 ULONG SnTotalTimeUs = 0;
 ULONG SnFlasherTime = 0;
 BOOLEAN SnFlasherOn = FALSE;
+ULONG SnShootingStarTime = 0;
+BOOLEAN SnShootingStarActive = FALSE;
+ULONG SnShootingStarStartX = 0;
+ULONG SnShootingStarStartY = 0;
+float SnShootingStarVelocityX = 0.0;
+float SnShootingStarVelocityY = 0.0;
+ULONG SnShootingStarDuration = 0;
 
 //
 // Starry Night building styles. Buildings are made up of tiled 8x8 blocks.
@@ -760,6 +785,7 @@ Return Value:
     ULONG MaxHeight;
     ULONG MinX;
     ULONG MinXIndex;
+    float RandomHeight;
     BOOL Result;
     BUILDING Swap;
     RECT WindowSize;
@@ -788,7 +814,8 @@ Return Value:
     // Determine the maximum height of a building.
     //
 
-    MaxHeight = (SnScreenWidth * SnBuildingHeightPercent / 100) / TILE_HEIGHT;
+    MaxHeight =
+            ((SnScreenHeight * SnBuildingHeightPercent) / 100) / TILE_HEIGHT;
 
     //
     // Sanity check.
@@ -818,7 +845,16 @@ Return Value:
          BuildingIndex += 1) {
 
         SnBuilding[BuildingIndex].Style = rand() % BUILDING_STYLE_COUNT;
-        SnBuilding[BuildingIndex].Height = rand() % MaxHeight;
+
+        //
+        // Squaring the random height makes for a more interesting distribution
+        // of buildings.
+        //
+
+        RandomHeight = (float)rand() / (float)RAND_MAX;
+        SnBuilding[BuildingIndex].Height =
+                               RandomHeight * RandomHeight * (float)MaxHeight;
+
         SnBuilding[BuildingIndex].Width =
                           SnMinBuildingWidth +
                           (rand() % (SnMaxBuildingWidth - SnMinBuildingWidth));
@@ -1055,9 +1091,8 @@ Return Value:
     SnpDrawStars(Dc);
     SnpDrawBuildings(Dc);
     SnpDrawRain(Dc);
+    SnpDrawShootingStar(Microseconds / 1000, Dc);
     SnpDrawFlasher(Microseconds / 1000, Dc);
-
-//UpdateEnd:
     ReleaseDC(SnWindow, Dc);
     return Result;
 }
@@ -1085,14 +1120,26 @@ Return Value:
 
 {
 
+    float RandomY;
     ULONG StarIndex;
     ULONG StarX;
     ULONG StarY;
 
+    //
+    // Randomly sprinkle a certain number of stars on the screen.
+    //
+
     StarIndex = 0;
     while (StarIndex < SnStarsPerUpdate) {
         StarX = rand() % SnScreenWidth;
-        StarY = rand() % SnScreenHeight;
+
+        //
+        // Squaring the Y coordinate puts more stars at the top and gives it
+        // a more realistic (and less static-ish) view.
+        //
+
+        RandomY = (float)rand() / (float)RAND_MAX;
+        StarY = (ULONG)(RandomY * RandomY * (float)SnScreenHeight);
         if (SnpGetTopBuilding(StarX, StarY) != -1) {
            continue;
         }
@@ -1397,6 +1444,189 @@ Return Value:
     return;
 }
 
+VOID
+SnpDrawShootingStar (
+    ULONG TimeElapsed,
+    HDC Dc
+    )
+
+/*++
+
+Routine Description:
+
+    This routine updates any shooting stars on the screen, for those watching
+    very closely.
+
+Arguments:
+
+    TimeElapsed - Supplies the time elapsed since the last update, in
+        milliseconds.
+
+    Dc - Supplies the context to draw the flasher on.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    HPEN BackgroundPen;
+    LOGBRUSH BrushStyle;
+    ULONG CurrentX;
+    ULONG CurrentY;
+    ULONG LineWidth;
+    ULONG MaxStarY;
+    ULONG NewX;
+    ULONG NewY;
+    HPEN OriginalPen;
+    HPEN Pen;
+    DWORD PenStyle;
+    float RandomY;
+
+    BackgroundPen = NULL;
+    Pen = NULL;
+    MaxStarY = SnScreenHeight - (SnScreenHeight *
+                                 SnBuildingHeightPercent / 100 / TILE_HEIGHT);
+
+    //
+    // If there is no shooting star now, count time until the decided period
+    // has ended.
+    //
+
+    if (SnShootingStarActive == FALSE) {
+
+        //
+        // If this causes the shooting star time to fire, set up the shooting
+        // star.
+        //
+
+        if (SnShootingStarTime <= TimeElapsed) {
+            SnShootingStarTime = 0;
+            SnShootingStarActive = TRUE;
+
+            //
+            // The shooting star should start somewhere between the top of the
+            // buildings and the top of the screen.
+            //
+
+            SnShootingStarStartX = rand() % SnScreenWidth;
+            RandomY = (float)rand() / (float)RAND_MAX;
+            SnShootingStarStartY = (ULONG)(RandomY * RandomY * (float)MaxStarY);
+            SnShootingStarDuration = rand() % SnMaxShootingStarDurationMs;
+            SnShootingStarVelocityX = (((float)rand() / (float)RAND_MAX) *
+                                       (2.0 * SnMaxShootingStarSpeedX)) -
+                                      SnMaxShootingStarSpeedX;
+
+            SnShootingStarVelocityY = (((float)rand() / (float)RAND_MAX) *
+                                       (SnMaxShootingStarSpeedY -
+                                        SnMinShootingStarSpeedY)) +
+                                      SnMinShootingStarSpeedY;
+
+        //
+        // No shooting star now, keep counting down.
+        //
+
+        } else {
+            SnShootingStarTime -= TimeElapsed;
+            return;
+        }
+    }
+
+    //
+    // Create the shooting star pen and the background pen that erases the
+    // tail.
+    //
+
+    PenStyle = PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND;
+    BrushStyle.lbStyle = BS_SOLID;
+    BrushStyle.lbColor = RGB(100, 0, 0);
+    BrushStyle.lbHatch = 0;
+    LineWidth = (ULONG)(SnShootingStarTime * SnMaxShootingStarWidth /
+                        SnShootingStarDuration);
+
+    Pen = ExtCreatePen(PenStyle, LineWidth, &BrushStyle, 0, NULL);
+    if (Pen == NULL) {
+        goto DrawShootingStarEnd;
+    }
+
+    BrushStyle.lbColor = RGB(0, 0, 0);
+    LineWidth = SnMaxShootingStarWidth + 1;
+    BackgroundPen = ExtCreatePen(PenStyle, LineWidth, &BrushStyle, 0, NULL);
+    if (BackgroundPen == NULL) {
+        goto DrawShootingStarEnd;
+    }
+
+    //
+    // Draw the shooting star line from the current location to the next
+    // location.
+    //
+
+    CurrentX = SnShootingStarStartX +
+               ((float)SnShootingStarTime * SnShootingStarVelocityX);
+
+    CurrentY = SnShootingStarStartY +
+               ((float)SnShootingStarTime * SnShootingStarVelocityY);
+
+    OriginalPen = SelectObject(Dc, Pen);
+    if (SnShootingStarTime < SnShootingStarDuration) {
+        NewX = CurrentX + ((float)TimeElapsed * SnShootingStarVelocityX);
+        NewY = CurrentY + ((float)TimeElapsed * SnShootingStarVelocityY);
+
+        //
+        // If the shooting star is about to fall behind a building, cut it off
+        // now. Otherwise, draw it.
+        //
+
+        if (SnpGetTopBuilding(NewX, NewY) != -1) {
+            SnShootingStarTime = SnShootingStarDuration;
+
+        } else {
+            MoveToEx(Dc, CurrentX, CurrentY, NULL);
+            LineTo(Dc, NewX, NewY);
+        }
+    }
+
+    //
+    // Draw background from the start to the current value.
+    //
+
+    SelectObject(Dc, BackgroundPen);
+    MoveToEx(Dc, SnShootingStarStartX, SnShootingStarStartY, NULL);
+    LineTo(Dc, CurrentX, CurrentY);
+    SelectObject(Dc, OriginalPen);
+
+    //
+    // Update the counters. If there is more time on the shooting star, just
+    // update time.
+    //
+
+    if (SnShootingStarTime < SnShootingStarDuration) {
+        SnShootingStarTime += TimeElapsed;
+
+    //
+    // The shooting star is sadly over. Reset the counters and patiently wait
+    // for the next one.
+    //
+
+    } else {
+        SnShootingStarActive = FALSE;
+        SnShootingStarTime = rand() % SnMaxShootingStarPeriodMs;
+    }
+
+DrawShootingStarEnd:
+    if (Pen != NULL) {
+        DeleteObject(Pen);
+    }
+
+    if (BackgroundPen != NULL) {
+        DeleteObject(BackgroundPen);
+    }
+
+    return;
+}
+
 BOOLEAN
 SnpTakeInParameters (
     HWND Window
@@ -1487,7 +1717,6 @@ TakeInParametersEnd:
 
     return Result;
 }
-
 
 BOOLEAN
 SnpSaveParameters (
@@ -1606,6 +1835,66 @@ Return Value:
         EndResult = FALSE;
     }
 
+    sprintf(String, "%d", (UINT)SnMaxShootingStarPeriodMs);
+    Result = WritePrivateProfileString(APPLICATION_NAME,
+                                       KEY_SHOOTING_STAR_PERIOD,
+                                       String,
+                                       CONFIGURATION_FILE);
+
+    if (Result == FALSE) {
+        EndResult = FALSE;
+    }
+
+    sprintf(String, "%d", (UINT)SnMaxShootingStarDurationMs);
+    Result = WritePrivateProfileString(APPLICATION_NAME,
+                                       KEY_SHOOTING_STAR_DURATION,
+                                       String,
+                                       CONFIGURATION_FILE);
+
+    if (Result == FALSE) {
+        EndResult = FALSE;
+    }
+
+    sprintf(String, "%d", (UINT)SnMaxShootingStarWidth);
+    Result = WritePrivateProfileString(APPLICATION_NAME,
+                                       KEY_SHOOTING_STAR_WIDTH,
+                                       String,
+                                       CONFIGURATION_FILE);
+
+    if (Result == FALSE) {
+        EndResult = FALSE;
+    }
+
+    sprintf(String, "%.2f", SnMaxShootingStarSpeedX);
+    Result = WritePrivateProfileString(APPLICATION_NAME,
+                                       KEY_MAX_SHOOTING_SPEED_X,
+                                       String,
+                                       CONFIGURATION_FILE);
+
+    if (Result == FALSE) {
+        EndResult = FALSE;
+    }
+
+    sprintf(String, "%.2f", SnMaxShootingStarSpeedY);
+    Result = WritePrivateProfileString(APPLICATION_NAME,
+                                       KEY_MAX_SHOOTING_SPEED_Y,
+                                       String,
+                                       CONFIGURATION_FILE);
+
+    if (Result == FALSE) {
+        EndResult = FALSE;
+    }
+
+    sprintf(String, "%.2f", SnMinShootingStarSpeedY);
+    Result = WritePrivateProfileString(APPLICATION_NAME,
+                                       KEY_MIN_SHOOTING_SPEED_Y,
+                                       String,
+                                       CONFIGURATION_FILE);
+
+    if (Result == FALSE) {
+        EndResult = FALSE;
+    }
+
 SaveParametersEnd:
     if (String != NULL) {
         free(String);
@@ -1637,6 +1926,9 @@ Return Value:
 --*/
 
 {
+
+    BOOLEAN Result;
+    PSTR String;
 
     SnBuildingHeightPercent = GetPrivateProfileInt(APPLICATION_NAME,
                                                    KEY_BUILDING_HEIGHT,
@@ -1678,6 +1970,68 @@ Return Value:
                                              SnFlasherPeriodMs,
                                              CONFIGURATION_FILE);
 
-    return TRUE;
+    SnMaxShootingStarPeriodMs = GetPrivateProfileInt(APPLICATION_NAME,
+                                                     KEY_SHOOTING_STAR_PERIOD,
+                                                     SnMaxShootingStarPeriodMs,
+                                                     CONFIGURATION_FILE);
+
+    SnMaxShootingStarDurationMs = GetPrivateProfileInt(
+                                                    APPLICATION_NAME,
+                                                    KEY_SHOOTING_STAR_DURATION,
+                                                    SnMaxShootingStarDurationMs,
+                                                    CONFIGURATION_FILE);
+
+    SnMaxShootingStarWidth = GetPrivateProfileInt(APPLICATION_NAME,
+                                                  KEY_SHOOTING_STAR_WIDTH,
+                                                  SnMaxShootingStarWidth,
+                                                  CONFIGURATION_FILE);
+
+    String = malloc(50);
+    if (String == NULL) {
+        Result = FALSE;
+        goto LoadParametersEnd;
+    }
+
+    GetPrivateProfileString(APPLICATION_NAME,
+                            KEY_MAX_SHOOTING_SPEED_X,
+                            "3.0",
+                            String,
+                            50,
+                            CONFIGURATION_FILE);
+
+    SnMaxShootingStarSpeedX = strtof(String, NULL);
+    if ((SnMaxShootingStarSpeedX < 0) || (SnMaxShootingStarSpeedX > 1000.0)) {
+        SnMaxShootingStarSpeedX = 3.0;
+    }
+
+    GetPrivateProfileString(APPLICATION_NAME,
+                            KEY_MAX_SHOOTING_SPEED_Y,
+                            "1.0",
+                            String,
+                            50,
+                            CONFIGURATION_FILE);
+
+    SnMaxShootingStarSpeedY = strtof(String, NULL);
+    if ((SnMaxShootingStarSpeedY < 0) || (SnMaxShootingStarSpeedY > 100.0)) {
+        SnMaxShootingStarSpeedY = 1.0;
+    }
+
+    GetPrivateProfileString(APPLICATION_NAME,
+                            KEY_MIN_SHOOTING_SPEED_Y,
+                            "0.1",
+                            String,
+                            50,
+                            CONFIGURATION_FILE);
+
+    SnMinShootingStarSpeedY = strtof(String, NULL);
+    if ((SnMinShootingStarSpeedY < 0) || (SnMinShootingStarSpeedY > 99.9)) {
+        SnMinShootingStarSpeedY = 0.1;
+    }
+
+    free(String);
+    Result = TRUE;
+
+LoadParametersEnd:
+    return Result;
 }
 
