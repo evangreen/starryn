@@ -408,7 +408,7 @@ Return Value:
     Class.cbClsExtra = 0;
     Class.cbWndExtra = 0;
     Class.hInstance = hInstance;
-    Class.hIcon = NULL; //LoadIcon(hInstance, MAKEINTRESOURCE(101));
+    Class.hIcon = NULL;
     Class.hCursor = NULL;
     Class.hbrBackground = NULL;
     Class.lpszMenuName = NULL;
@@ -855,6 +855,7 @@ Return Value:
         SnBuilding[BuildingIndex].Height =
                                RandomHeight * RandomHeight * (float)MaxHeight;
 
+        SnBuilding[BuildingIndex].Height += 1;
         SnBuilding[BuildingIndex].Width =
                           SnMinBuildingWidth +
                           (rand() % (SnMaxBuildingWidth - SnMinBuildingWidth));
@@ -1147,7 +1148,7 @@ Return Value:
         SetPixel(Dc,
                  StarX,
                  StarY,
-                 RGB(rand() % 256, rand() % 256, rand() % 256));
+                 RGB(rand() % 180, rand() % 180, rand() % 256));
 
         StarIndex += 1;
     }
@@ -1514,7 +1515,7 @@ Return Value:
             SnShootingStarStartX = rand() % SnScreenWidth;
             RandomY = (float)rand() / (float)RAND_MAX;
             SnShootingStarStartY = (ULONG)(RandomY * RandomY * (float)MaxStarY);
-            SnShootingStarDuration = rand() % SnMaxShootingStarDurationMs;
+            SnShootingStarDuration = (rand() % SnMaxShootingStarDurationMs) + 1;
             SnShootingStarVelocityX = (((float)rand() / (float)RAND_MAX) *
                                        (2.0 * SnMaxShootingStarSpeedX)) -
                                       SnMaxShootingStarSpeedX;
