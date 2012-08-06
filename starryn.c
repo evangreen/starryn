@@ -177,7 +177,6 @@ SnpLoadParameters (
 // -------------------------------------------------------------------- Globals
 //
 
-BOOLEAN ScreenSaverTerminate = FALSE;
 BOOLEAN ScreenSaverWindowed = FALSE;
 
 //
@@ -490,15 +489,9 @@ Return Value:
     // Pump messages to the window.
     //
 
-    while (ScreenSaverTerminate == FALSE) {
-        while (PeekMessage(&Message, NULL, 0, 0, PM_REMOVE) != FALSE) {
-            if (Message.message == WM_QUIT) {
-                ScreenSaverTerminate = TRUE;
-            }
-
-            DispatchMessage(&Message);
-            Sleep(15);
-        }
+    while (GetMessage(&Message, NULL, 0, 0) > 0) {
+        TranslateMessage(&Message);
+        DispatchMessage(&Message);
     }
 
 WinMainEnd:
@@ -555,8 +548,7 @@ Return Value:
     case WM_CREATE:
         Result = SnInitialize(hWnd);
         if (Result == FALSE) {
-            ScreenSaverTerminate = TRUE;
-            SendMessage(hWnd, WM_CLOSE, 0, 0);
+            PostQuitMessage(0);
         }
 
         GetCursorPos(&SnMousePosition);
@@ -572,7 +564,7 @@ Return Value:
     case WM_DESTROY:
         SnDestroy();
         PostQuitMessage(0);
-        break;
+        return 0;
 
     case WM_SETCURSOR:
         if (ScreenSaverWindowed == FALSE) {
@@ -641,6 +633,9 @@ Return Value:
             return FALSE;
         }
 
+        break;
+
+    default:
         break;
     }
 
@@ -1020,7 +1015,7 @@ Return Value:
 
     Result = SnpUpdate((ULONG)User);
     if (Result == FALSE) {
-        ScreenSaverTerminate = TRUE;
+        PostQuitMessage(0);
     }
 
     return;
