@@ -463,8 +463,8 @@ Return Value:
                                 APPLICATION_NAME,
                                 APPLICATION_NAME,
                                 WS_VISIBLE | WS_POPUP,
-                                0,
-                                0,
+                                GetSystemMetrics(SM_XVIRTUALSCREEN),
+                                GetSystemMetrics(SM_YVIRTUALSCREEN),
                                 GetSystemMetrics(SM_CXVIRTUALSCREEN),
                                 GetSystemMetrics(SM_CYVIRTUALSCREEN),
                                 NULL,
@@ -702,6 +702,12 @@ Return Value:
         Edit_SetText(EditBox, String);
         EditBox = GetDlgItem(Dialog, IDE_BUILDING_COUNT);
         sprintf(String, "%d", (UINT)SnBuildingCount);
+        Edit_SetText(EditBox, String);
+        EditBox = GetDlgItem(Dialog, IDE_STARS_COUNT);
+        sprintf(String, "%d", (UINT)SnStarsPerUpdate);
+        Edit_SetText(EditBox, String);
+        EditBox = GetDlgItem(Dialog, IDE_LIGHTS_COUNT);
+        sprintf(String, "%d", (UINT)SnBuildingPixelsPerUpdate);
         Edit_SetText(EditBox, String);
         free(String);
         CheckBox = GetDlgItem(Dialog, IDC_FLASHER);
@@ -1649,12 +1655,15 @@ Return Value:
 
 {
 
+    PSTR AfterScan;
     ULONG BuildingCount;
     ULONG BuildingHeight;
+    ULONG BuildingPixelCount;
     HWND CheckBox;
     HWND EditBox;
     BOOLEAN FlasherEnabled;
     BOOLEAN Result;
+    ULONG StarCount;
     PSTR String;
 
     String = malloc(50);
@@ -1662,6 +1671,10 @@ Return Value:
         Result = FALSE;
         goto TakeInParametersEnd;
     }
+
+    //
+    // Get the building height percent.
+    //
 
     EditBox = GetDlgItem(Window, IDE_BUILDING_HEIGHT);
     Edit_GetText(EditBox, String, 50);
@@ -1677,6 +1690,10 @@ Return Value:
         goto TakeInParametersEnd;
     }
 
+    //
+    // Get the building count.
+    //
+
     EditBox = GetDlgItem(Window, IDE_BUILDING_COUNT);
     Edit_GetText(EditBox, String, 50);
     BuildingCount = strtoul(String, NULL, 10);
@@ -1684,6 +1701,40 @@ Return Value:
         MessageBox(NULL,
                    "Please enter the number of buildings. Valid values are 0 "
                    "to 1000.",
+                   "Error",
+                   MB_OK);
+
+        Result = FALSE;
+        goto TakeInParametersEnd;
+    }
+
+    //
+    // Get the star count.
+    //
+
+    EditBox = GetDlgItem(Window, IDE_STARS_COUNT);
+    Edit_GetText(EditBox, String, 50);
+    StarCount = strtoul(String, &AfterScan, 10);
+    if (AfterScan == String) {
+        MessageBox(NULL,
+                   "Please enter a number of stars per update.",
+                   "Error",
+                   MB_OK);
+
+        Result = FALSE;
+        goto TakeInParametersEnd;
+    }
+
+    //
+    // Get the building pixel count.
+    //
+
+    EditBox = GetDlgItem(Window, IDE_LIGHTS_COUNT);
+    Edit_GetText(EditBox, String, 50);
+    BuildingPixelCount = strtoul(String, &AfterScan, 10);
+    if (AfterScan == String) {
+        MessageBox(NULL,
+                   "Please enter a number of building pixels per update.",
                    "Error",
                    MB_OK);
 
@@ -1703,6 +1754,8 @@ Return Value:
 
     SnBuildingHeightPercent = BuildingHeight;
     SnBuildingCount = BuildingCount;
+    SnStarsPerUpdate = StarCount;
+    SnBuildingPixelsPerUpdate = BuildingPixelCount;
     SnFlasherEnabled = FlasherEnabled;
     Result = TRUE;
 

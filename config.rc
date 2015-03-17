@@ -21,6 +21,14 @@ BEGIN
                   UI_BORDER, BUILDING_COUNT_OFFSET_Y, UI_DESCRIPTION_WIDTH,
                   UI_LINE_HEIGHT
 
+    RTEXT         "Stars per Update: ", 0,
+                  UI_BORDER, STARS_COUNT_OFFSET_Y, UI_DESCRIPTION_WIDTH,
+                  UI_LINE_HEIGHT
+
+    RTEXT         "Lights per Update: ", 0,
+                  UI_BORDER, LIGHTS_COUNT_OFFSET_Y, UI_DESCRIPTION_WIDTH,
+                  UI_LINE_HEIGHT
+
     RTEXT         "Flasher: ", 0,
                   UI_BORDER, FLASHER_OFFSET_Y, UI_DESCRIPTION_WIDTH,
                   UI_LINE_HEIGHT
@@ -34,6 +42,16 @@ BEGIN
     CONTROL       "", IDE_BUILDING_COUNT, "EDIT",
                   ES_LEFT | WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP,
                   EDIT_BOX_OFFSET_X, BUILDING_COUNT_OFFSET_Y,
+                  UI_SMALL_BOX_WIDTH, UI_LINE_HEIGHT
+
+    CONTROL       "", IDE_STARS_COUNT, "EDIT",
+                  ES_LEFT | WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP,
+                  EDIT_BOX_OFFSET_X, STARS_COUNT_OFFSET_Y,
+                  UI_SMALL_BOX_WIDTH, UI_LINE_HEIGHT
+
+    CONTROL       "", IDE_LIGHTS_COUNT, "EDIT",
+                  ES_LEFT | WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP,
+                  EDIT_BOX_OFFSET_X, LIGHTS_COUNT_OFFSET_Y,
                   UI_SMALL_BOX_WIDTH, UI_LINE_HEIGHT
 
     AUTOCHECKBOX  "", IDC_FLASHER, EDIT_BOX_OFFSET_X, FLASHER_OFFSET_Y,
