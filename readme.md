@@ -4,4 +4,4 @@ This is a revival of the original Starry Night screensaver from After Dark, rele
 ![Screenshot](screenshot.gif?raw=true "Screenshot")
 
 # Downloads
-Download the latest release ![here](starryn.scr?raw=true)
+Download the latest release ![here](starryn.scr)
