@@ -47,6 +47,6 @@ $(BINARY): $(OBJS)
 	@$(RCC) -o $@ $<
 
 clean:
-	-del *.o
-	-del *.rsc
-	-del $(BINARY)
+	-rm *.o
+	-rm *.rsc
+	-rm $(BINARY)
