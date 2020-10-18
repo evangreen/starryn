@@ -93,7 +93,7 @@ ScreenSaverProc (
     LPARAM lParam
     );
 
-BOOL
+INT_PTR
 DLLEXPORT
 WINAPI
 ScreenSaverConfigureDialog (
@@ -386,7 +386,7 @@ Return Value:
         (strstr(lpszCmdParam, "/I") != NULL)) {
 
 
-        Parent = (HWND)atoi(lpszCmdParam + 3);
+        Parent = (HWND)(ULONG_PTR)atoi(lpszCmdParam + 3);
         GetWindowRect(Parent, &ParentRect);
         if (IsWindow(Parent) == FALSE) {
             Return = 0;
@@ -642,7 +642,7 @@ Return Value:
     return DefWindowProc(hWnd, Message, wParam, lParam);
 }
 
-BOOL
+INT_PTR
 DLLEXPORT
 WINAPI
 ScreenSaverConfigureDialog (
