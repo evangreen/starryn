@@ -129,7 +129,6 @@ SnInitializeGlobalState (
 
 BOOLEAN
 SnInitializeScreen (
-    PSTARRY_SCREEN Screen,
     HWND Window
     );
 
@@ -151,6 +150,12 @@ SnTimerEvent (
     DWORD_PTR User,
     DWORD_PTR Parameter1,
     DWORD_PTR Parameter2
+    );
+
+PSTARRY_SCREEN
+SnpFindScreenForWindow (
+    HWND Window,
+    BOOL Create
     );
 
 BOOLEAN
@@ -321,7 +326,14 @@ UCHAR SnBuildingTiles[BUILDING_STYLE_COUNT][TILE_HEIGHT][TILE_WIDTH] = {
 // Global state, currently only for one screen.
 //
 
-STARRY_SCREEN SnScreen;
+STARRY_SCREEN SnStaticScreen;
+
+//
+// Global state, all screens.
+//
+
+PSTARRY_SCREEN SnScreens;
+ULONG SnScreenCount;
 
 //
 // ------------------------------------------------------------------ Functions
@@ -457,6 +469,14 @@ Return Value:
     }
 
     //
+    // "Enumerate" the screens by setting up the array consisting of a single
+    // static element. To be replaced by multi-monitor enumeration.
+    //
+
+    SnScreens = &SnStaticScreen;
+    SnScreenCount = 1;
+
+    //
     // Create the window.
     //
 
@@ -574,7 +594,7 @@ Return Value:
             PostQuitMessage(0);
         }
 
-        Result = SnInitializeScreen(&SnScreen, hWnd);
+        Result = SnInitializeScreen(hWnd);
         if (Result == FALSE) {
             PostQuitMessage(0);
         }
@@ -590,8 +610,14 @@ Return Value:
         break;
 
     case WM_DESTROY:
-        SnDestroyScreen(&SnScreen);
+
+        //
+        // Destroy global state before the screen so the timer isn't running
+        // when the buildings are free.
+        //
+
         SnDestroyGlobalState();
+        SnDestroyScreen(SnpFindScreenForWindow(hWnd, FALSE));
         PostQuitMessage(0);
         return 0;
 
@@ -852,7 +878,6 @@ InitializeGlobalStateEnd:
 
 BOOLEAN
 SnInitializeScreen (
-    PSTARRY_SCREEN Screen,
     HWND Window
     )
 
@@ -863,8 +888,6 @@ Routine Description:
     This routine initializes the Starry Night screen saver.
 
 Arguments:
-
-    Screen - Supplies a pointer to the screen to initialize.
 
     Window - Supplies a pointer to the window being initialized.
 
@@ -888,10 +911,21 @@ Return Value:
     ULONG MinXIndex;
     float RandomHeight;
     BOOL Result;
+    PSTARRY_SCREEN Screen;
     BUILDING Swap;
     RECT WindowSize;
 
     Buildings = NULL;
+
+    //
+    // Allocate a screen context for this window.
+    //
+
+    Screen = SnpFindScreenForWindow(Window, TRUE);
+    if (Screen == NULL) {
+        return FALSE;
+    }
+
     memset(Screen, 0, sizeof(*Screen));
     Screen->Clear = TRUE;
     Screen->ShootingStarVelocityX = 0.0;
@@ -1084,6 +1118,7 @@ Return Value:
         Screen->Buildings = NULL;
     }
 
+    Screen->Window = NULL;
     return;
 }
 
@@ -1124,14 +1159,66 @@ Return Value:
 
 {
 
+    ULONG Index;
     BOOLEAN Result;
 
-    Result = SnpUpdate(&SnScreen, (ULONG)User);
-    if (Result == FALSE) {
-        PostQuitMessage(0);
+    for (Index = 0; Index < SnScreenCount; Index += 1) {
+        Result = SnpUpdate(&(SnScreens[Index]), (ULONG)User);
+        if (Result == FALSE) {
+            PostQuitMessage(0);
+        }
     }
 
     return;
+}
+
+PSTARRY_SCREEN
+SnpFindScreenForWindow (
+    HWND Window,
+    BOOL Create
+    )
+
+/*++
+
+Routine Description:
+
+    This routine locates or potentially allocates a context for a given
+    window screen.
+
+Arguments:
+
+    Window - Supplies the window handle to get the associated context for.
+
+    Create - Supplies a boolean indicating whether to allocate a context if
+        no context is found for this window.
+
+Return Value:
+
+    Returns a pointer to the screen context on success.
+
+    NULL if no context could be found for this window, and either the caller
+    didn't want to create one, or no empty slots were found.
+
+--*/
+
+{
+
+    PSTARRY_SCREEN Empty;
+    ULONG Index;
+
+    Empty = NULL;
+    for (Index = 0; Index < SnScreenCount; Index += 1) {
+        if (SnScreens[Index].Window == Window) {
+            return &(SnScreens[Index]);
+
+        } else if ((Empty == NULL) && (Create != FALSE) &&
+                   (SnScreens[Index].Window == NULL)) {
+
+            Empty = &(SnScreens[Index]);
+        }
+    }
+
+    return Empty;
 }
 
 BOOLEAN
@@ -1168,7 +1255,7 @@ Return Value:
     HBRUSH OriginalBrush;
     BOOLEAN Result;
 
-    if (Microseconds == 0) {
+    if ((Microseconds == 0) || (Screen->Window == NULL)) {
         return FALSE;
     }
 
