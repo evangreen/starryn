@@ -79,6 +79,25 @@ typedef struct _BUILDING {
     ULONG ZCoordinate;
 } BUILDING, *PBUILDING;
 
+typedef struct _STARRY_SCREEN {
+    HWND Window;
+    ULONG Width;
+    ULONG Height;
+    BOOLEAN Clear;
+    BOOLEAN FlasherOn;
+    BOOLEAN ShootingStarActive;
+    PBUILDING Buildings;
+    ULONG FlasherX;
+    ULONG FlasherY;
+    ULONG FlasherTime;
+    ULONG ShootingStarTime;
+    ULONG ShootingStarDuration;
+    ULONG ShootingStarStartX;
+    ULONG ShootingStarStartY;
+    float ShootingStarVelocityX;
+    float ShootingStarVelocityY;
+} STARRY_SCREEN, *PSTARRY_SCREEN;
+
 //
 // -------------------------------------------------------- Function Prototypes
 //
@@ -124,38 +143,45 @@ SnTimerEvent (
 
 BOOLEAN
 SnpUpdate (
+    PSTARRY_SCREEN Screen,
     ULONG Microseconds
     );
 
 VOID
 SnpDrawStars (
+    PSTARRY_SCREEN Screen,
     HDC Dc
     );
 
 VOID
 SnpDrawBuildings (
+    PSTARRY_SCREEN Screen,
     HDC Dc
     );
 
 ULONG
 SnpGetTopBuilding (
+    PSTARRY_SCREEN Screen,
     ULONG ScreenX,
     ULONG ScreenY
     );
 
 VOID
 SnpDrawRain (
+    PSTARRY_SCREEN Screen,
     HDC Dc
     );
 
 VOID
 SnpDrawFlasher (
+    PSTARRY_SCREEN Screen,
     ULONG TimeElapsed,
     HDC Dc
     );
 
 VOID
 SnpDrawShootingStar (
+    PSTARRY_SCREEN Screen,
     ULONG TimeElapsed,
     HDC Dc
     );
@@ -205,33 +231,12 @@ float SnMaxShootingStarSpeedY = 1.0;
 ULONG SnMaxShootingStarWidth = 4;
 
 //
-// Starry Night State.
+// Starry Night global state.
 //
 
 POINT SnMousePosition;
-HWND SnWindow = NULL;
-ULONG SnScreenWidth = 0;
-ULONG SnScreenHeight = 0;
 MMRESULT SnTimer = 0;
-BOOLEAN SnClear = TRUE;
-PBUILDING SnBuilding = NULL;
-ULONG SnFlasherX = 0;
-ULONG SnFlasherY = 0;
-
-//
-// Starry Night Timing State.
-//
-
 ULONG SnTotalTimeUs = 0;
-ULONG SnFlasherTime = 0;
-BOOLEAN SnFlasherOn = FALSE;
-ULONG SnShootingStarTime = 0;
-BOOLEAN SnShootingStarActive = FALSE;
-ULONG SnShootingStarStartX = 0;
-ULONG SnShootingStarStartY = 0;
-float SnShootingStarVelocityX = 0.0;
-float SnShootingStarVelocityY = 0.0;
-ULONG SnShootingStarDuration = 0;
 
 //
 // Starry Night building styles. Buildings are made up of tiled 8x8 blocks.
@@ -299,6 +304,12 @@ UCHAR SnBuildingTiles[BUILDING_STYLE_COUNT][TILE_HEIGHT][TILE_WIDTH] = {
         {0, 0, 0, 0, 0, 0, 0, 0},
     },
 };
+
+//
+// Global state, currently only for one screen.
+//
+
+STARRY_SCREEN SnScreen;
 
 //
 // ------------------------------------------------------------------ Functions
@@ -779,6 +790,7 @@ Return Value:
 
 {
 
+    PBUILDING Buildings;
     ULONG BuildingIndex;
     ULONG FlasherBuilding;
     ULONG Index2;
@@ -793,11 +805,15 @@ Return Value:
 
     srand(time(NULL));
 
+    SnScreen.Clear = TRUE;
+    SnScreen.ShootingStarVelocityX = 0.0;
+    SnScreen.ShootingStarVelocityY = 0.0;
+
     //
     // Save the window.
     //
 
-    SnWindow = Window;
+    SnScreen.Window = Window;
 
     //
     // Determine the size of the screen.
@@ -808,15 +824,15 @@ Return Value:
         goto InitializeEnd;
     }
 
-    SnScreenWidth = WindowSize.right - WindowSize.left;
-    SnScreenHeight = WindowSize.bottom - WindowSize.top;
+    SnScreen.Width = WindowSize.right - WindowSize.left;
+    SnScreen.Height = WindowSize.bottom - WindowSize.top;
 
     //
     // Determine the maximum height of a building.
     //
 
     MaxHeight =
-            ((SnScreenHeight * SnBuildingHeightPercent) / 100) / TILE_HEIGHT;
+            ((SnScreen.Height * SnBuildingHeightPercent) / 100) / TILE_HEIGHT;
 
     //
     // Sanity check.
@@ -834,18 +850,19 @@ Return Value:
     // Allocate and initialize the buildings.
     //
 
-    SnBuilding = malloc(sizeof(BUILDING) * SnBuildingCount);
-    if (SnBuilding == NULL) {
+    Buildings = malloc(sizeof(BUILDING) * SnBuildingCount);
+    if (Buildings == NULL) {
         Result = FALSE;
         goto InitializeEnd;
     }
 
+    SnScreen.Buildings = Buildings;
     MaxActualHeight = 0;
     for (BuildingIndex = 0;
          BuildingIndex < SnBuildingCount;
          BuildingIndex += 1) {
 
-        SnBuilding[BuildingIndex].Style = rand() % BUILDING_STYLE_COUNT;
+        Buildings[BuildingIndex].Style = rand() % BUILDING_STYLE_COUNT;
 
         //
         // Squaring the random height makes for a more interesting distribution
@@ -853,23 +870,23 @@ Return Value:
         //
 
         RandomHeight = (float)rand() / (float)RAND_MAX;
-        SnBuilding[BuildingIndex].Height =
+        Buildings[BuildingIndex].Height =
                                RandomHeight * RandomHeight * (float)MaxHeight;
 
-        SnBuilding[BuildingIndex].Height += 1;
-        SnBuilding[BuildingIndex].Width =
+        Buildings[BuildingIndex].Height += 1;
+        Buildings[BuildingIndex].Width =
                           SnMinBuildingWidth +
                           (rand() % (SnMaxBuildingWidth - SnMinBuildingWidth));
 
-        SnBuilding[BuildingIndex].BeginX = rand() % SnScreenWidth;
-        SnBuilding[BuildingIndex].ZCoordinate = BuildingIndex + 1;
+        Buildings[BuildingIndex].BeginX = rand() % SnScreen.Width;
+        Buildings[BuildingIndex].ZCoordinate = BuildingIndex + 1;
 
         //
         // The tallest building on the landscape gets the flasher.
         //
 
-        if (SnBuilding[BuildingIndex].Height > MaxActualHeight) {
-            MaxActualHeight = SnBuilding[BuildingIndex].Height;
+        if (Buildings[BuildingIndex].Height > MaxActualHeight) {
+            MaxActualHeight = Buildings[BuildingIndex].Height;
             FlasherBuilding = BuildingIndex;
         }
     }
@@ -879,13 +896,13 @@ Return Value:
     // top of the tallest building.
     //
 
-    SnFlasherOn = FALSE;
-    SnFlasherTime = 0;
-    SnFlasherX = SnBuilding[FlasherBuilding].BeginX +
-                 (SnBuilding[FlasherBuilding].Width * TILE_WIDTH / 2);
+    SnScreen.FlasherOn = FALSE;
+    SnScreen.FlasherTime = rand() % (SnFlasherPeriodMs + 1);
+    SnScreen.FlasherX = Buildings[FlasherBuilding].BeginX +
+                        (Buildings[FlasherBuilding].Width * TILE_WIDTH / 2);
 
-    SnFlasherY = SnScreenHeight -
-                 (SnBuilding[FlasherBuilding].Height * TILE_HEIGHT);
+    SnScreen.FlasherY = SnScreen.Height -
+                        (Buildings[FlasherBuilding].Height * TILE_HEIGHT);
 
     //
     // Sort the buildings by X coordinate.
@@ -899,11 +916,11 @@ Return Value:
         // Find the building with the lowest X coordinate.
         //
 
-        MinX = SnScreenWidth;
+        MinX = SnScreen.Width;
         MinXIndex = -1;
         for (Index2 = BuildingIndex; Index2 < SnBuildingCount; Index2 += 1) {
-            if (SnBuilding[Index2].BeginX < MinX) {
-                MinX = SnBuilding[Index2].BeginX;
+            if (Buildings[Index2].BeginX < MinX) {
+                MinX = Buildings[Index2].BeginX;
                 MinXIndex = Index2;
             }
         }
@@ -913,9 +930,9 @@ Return Value:
         //
 
         if (BuildingIndex != MinXIndex) {
-            Swap = SnBuilding[BuildingIndex];
-            SnBuilding[BuildingIndex] = SnBuilding[MinXIndex];
-            SnBuilding[MinXIndex] = Swap;
+            Swap = Buildings[BuildingIndex];
+            Buildings[BuildingIndex] = Buildings[MinXIndex];
+            Buildings[MinXIndex] = Swap;
         }
     }
 
@@ -938,8 +955,9 @@ Return Value:
 
 InitializeEnd:
     if (Result == FALSE) {
-        if (SnBuilding != NULL) {
-            free(SnBuilding);
+        if (Buildings != NULL) {
+            free(Buildings);
+            SnScreen.Buildings = NULL;
         }
     }
 
@@ -972,9 +990,9 @@ Return Value:
         timeKillEvent(SnTimer);
     }
 
-    if (SnBuilding != NULL) {
-        free(SnBuilding);
-        SnBuilding = NULL;
+    if (SnScreen.Buildings != NULL) {
+        free(SnScreen.Buildings);
+        SnScreen.Buildings = NULL;
     }
 
     return;
@@ -1019,7 +1037,7 @@ Return Value:
 
     BOOLEAN Result;
 
-    Result = SnpUpdate((ULONG)User);
+    Result = SnpUpdate(&SnScreen, (ULONG)User);
     if (Result == FALSE) {
         PostQuitMessage(0);
     }
@@ -1029,6 +1047,7 @@ Return Value:
 
 BOOLEAN
 SnpUpdate (
+    PSTARRY_SCREEN Screen,
     ULONG Microseconds
     )
 
@@ -1039,6 +1058,8 @@ Routine Description:
     This routine updates the Starry Night runtime.
 
 Arguments:
+
+    Screen - Supplies a pointer to the context for this screen.
 
     Microseconds - Supplies the number of microseconds that have gone by since
         the last update.
@@ -1062,7 +1083,7 @@ Return Value:
         return FALSE;
     }
 
-    Dc = GetDC(SnWindow);
+    Dc = GetDC(Screen->Window);
 
     //
     // Update main time.
@@ -1074,7 +1095,7 @@ Return Value:
     // If the window has not been set up, clear everything now.
     //
 
-    if (SnClear != FALSE) {
+    if (Screen->Clear != FALSE) {
 
         //
         // Wipe the screen.
@@ -1085,22 +1106,22 @@ Return Value:
         ExtFloodFill(Dc, 0, 0, GetPixel(Dc, 0, 0), FLOODFILLSURFACE);
         SelectObject(Dc, OriginalBrush);
         DeleteObject(OriginalBrush);
-        SnClear = FALSE;
+        Screen->Clear = FALSE;
     }
 
     Result = TRUE;
-
-    SnpDrawStars(Dc);
-    SnpDrawBuildings(Dc);
-    SnpDrawRain(Dc);
-    SnpDrawShootingStar(Microseconds / 1000, Dc);
-    SnpDrawFlasher(Microseconds / 1000, Dc);
-    ReleaseDC(SnWindow, Dc);
+    SnpDrawStars(Screen, Dc);
+    SnpDrawBuildings(Screen, Dc);
+    SnpDrawRain(Screen, Dc);
+    SnpDrawShootingStar(Screen, Microseconds / 1000, Dc);
+    SnpDrawFlasher(Screen, Microseconds / 1000, Dc);
+    ReleaseDC(Screen->Window, Dc);
     return Result;
 }
 
 VOID
 SnpDrawStars (
+    PSTARRY_SCREEN Screen,
     HDC Dc
     )
 
@@ -1111,6 +1132,8 @@ Routine Description:
     This routine draws stars to the sky.
 
 Arguments:
+
+    Screen - Supplies the context for this screen.
 
     Dc - Supplies the device context to draw stars to.
 
@@ -1133,7 +1156,7 @@ Return Value:
 
     StarIndex = 0;
     while (StarIndex < SnStarsPerUpdate) {
-        StarX = rand() % SnScreenWidth;
+        StarX = rand() % Screen->Width;
 
         //
         // Squaring the Y coordinate puts more stars at the top and gives it
@@ -1141,8 +1164,8 @@ Return Value:
         //
 
         RandomY = (float)rand() / (float)RAND_MAX;
-        StarY = (ULONG)(RandomY * RandomY * (float)SnScreenHeight);
-        if (SnpGetTopBuilding(StarX, StarY) != -1) {
+        StarY = (ULONG)(RandomY * RandomY * (float)Screen->Height);
+        if (SnpGetTopBuilding(Screen, StarX, StarY) != -1) {
            continue;
         }
 
@@ -1159,6 +1182,7 @@ Return Value:
 
 VOID
 SnpDrawBuildings (
+    PSTARRY_SCREEN Screen,
     HDC Dc
     )
 
@@ -1170,6 +1194,8 @@ Routine Description:
     worker.
 
 Arguments:
+
+    Screen - Supplies the context for this screen.
 
     Dc - Supplies the device context to draw stars to.
 
@@ -1191,20 +1217,20 @@ Return Value:
     ULONG TileX;
     ULONG TileY;
 
-    BuildingHeightRange = SnScreenHeight - SnFlasherY;
-    BuildingHeightOffset = SnFlasherY;
+    BuildingHeightRange = Screen->Height - Screen->FlasherY;
+    BuildingHeightOffset = Screen->FlasherY;
     PixelsOn = 0;
     while (PixelsOn < SnBuildingPixelsPerUpdate) {
-        PotentialX = rand() % SnScreenWidth;
+        PotentialX = rand() % Screen->Width;
         PotentialY = BuildingHeightOffset + (rand() % BuildingHeightRange);
-        Building = SnpGetTopBuilding(PotentialX, PotentialY);
+        Building = SnpGetTopBuilding(Screen, PotentialX, PotentialY);
         if (Building == -1) {
             continue;
         }
 
-        TileX = (PotentialX - SnBuilding[Building].BeginX) % TILE_WIDTH;
+        TileX = (PotentialX - Screen->Buildings[Building].BeginX) % TILE_WIDTH;
         TileY = PotentialY % TILE_HEIGHT;
-        Style = SnBuilding[Building].Style;
+        Style = Screen->Buildings[Building].Style;
         if (SnBuildingTiles[Style][TileY][TileX] == 0) {
             continue;
         }
@@ -1218,6 +1244,7 @@ Return Value:
 
 ULONG
 SnpGetTopBuilding (
+    PSTARRY_SCREEN Screen,
     ULONG ScreenX,
     ULONG ScreenY
     )
@@ -1229,6 +1256,8 @@ Routine Description:
     This routine determines which building the given pixel is in.
 
 Arguments:
+
+    Screen - Supplies the context for this screen.
 
     ScreenX - Supplies the X coordinate, in screen space.
 
@@ -1243,7 +1272,8 @@ Return Value:
 
 {
 
-    ULONG Building;
+    PBUILDING Building;
+    ULONG BuildingIndex;
     ULONG BuildingRight;
     ULONG BuildingTop;
     ULONG FrontBuilding;
@@ -1251,14 +1281,18 @@ Return Value:
 
     FrontBuilding = -1;
     MaxZ = 0;
-    for (Building = 0; Building < SnBuildingCount; Building += 1) {
+    for (BuildingIndex = 0;
+         BuildingIndex < SnBuildingCount;
+         BuildingIndex += 1) {
+
+        Building = &(Screen->Buildings[BuildingIndex]);
 
         //
         // The buildings are sorted by X coordinate. If this building starts
         // to the right of the pixel in question, none of the rest intersect.
         //
 
-        if (SnBuilding[Building].BeginX > ScreenX) {
+        if (Building->BeginX > ScreenX) {
             break;
         }
 
@@ -1266,13 +1300,13 @@ Return Value:
         // Check to see if the pixel is inside this building.
         //
 
-        BuildingTop = SnScreenHeight -
-                      (SnBuilding[Building].Height * TILE_HEIGHT);
+        BuildingTop = Screen->Height -
+                      (Building->Height * TILE_HEIGHT);
 
-        BuildingRight = SnBuilding[Building].BeginX +
-                        (SnBuilding[Building].Width * TILE_WIDTH);
+        BuildingRight = Building->BeginX +
+                        (Building->Width * TILE_WIDTH);
 
-        if ((ScreenX >= SnBuilding[Building].BeginX) &&
+        if ((ScreenX >= Building->BeginX) &&
             (ScreenX < BuildingRight) &&
             (ScreenY > BuildingTop)) {
 
@@ -1280,9 +1314,9 @@ Return Value:
             // If this is the front-most building, mark it as the new winner.
             //
 
-            if (SnBuilding[Building].ZCoordinate > MaxZ) {
-                FrontBuilding = Building;
-                MaxZ = SnBuilding[Building].ZCoordinate;
+            if (Building->ZCoordinate > MaxZ) {
+                FrontBuilding = BuildingIndex;
+                MaxZ = Building->ZCoordinate;
             }
         }
     }
@@ -1292,6 +1326,7 @@ Return Value:
 
 VOID
 SnpDrawRain (
+    PSTARRY_SCREEN Screen,
     HDC Dc
     )
 
@@ -1303,6 +1338,8 @@ Routine Description:
     and lights are going back off.
 
 Arguments:
+
+    Screen - Supplies the context for this screen.
 
     Dc - Supplies the context to draw the black rain on.
 
@@ -1341,8 +1378,8 @@ Return Value:
         }
 
         OriginalPen = SelectObject(Dc, Pen);
-        RainX = rand() % SnScreenWidth;
-        RainY = rand() % SnScreenHeight;
+        RainX = rand() % Screen->Width;
+        RainY = rand() % Screen->Height;
         MoveToEx(Dc, RainX, RainY, NULL);
         LineTo(Dc, RainX + 1, RainY + 1);
 
@@ -1359,6 +1396,7 @@ Return Value:
 
 VOID
 SnpDrawFlasher (
+    PSTARRY_SCREEN Screen,
     ULONG TimeElapsed,
     HDC Dc
     )
@@ -1370,6 +1408,8 @@ Routine Description:
     This routine draws the flasher, if enabled.
 
 Arguments:
+
+    Screen - Supplies the context for this screen.
 
     TimeElapsed - Supplies the time elapsed since the last update, in
         milliseconds.
@@ -1394,18 +1434,18 @@ Return Value:
     BlackOutFlasher = FALSE;
 
     if (SnFlasherEnabled == FALSE) {
-        SnFlasherOn = FALSE;
+        Screen->FlasherOn = FALSE;
         return;
     }
 
-    SnFlasherTime += TimeElapsed;
-    if (SnFlasherTime >= SnFlasherPeriodMs) {
-        SnFlasherTime -= SnFlasherPeriodMs;
-        if (SnFlasherOn == FALSE) {
-            SnFlasherOn = TRUE;
+    Screen->FlasherTime += TimeElapsed;
+    if (Screen->FlasherTime >= SnFlasherPeriodMs) {
+        Screen->FlasherTime -= SnFlasherPeriodMs;
+        if (Screen->FlasherOn == FALSE) {
+            Screen->FlasherOn = TRUE;
 
         } else {
-            SnFlasherOn = FALSE;
+            Screen->FlasherOn = FALSE;
             BlackOutFlasher = TRUE;
         }
     }
@@ -1414,10 +1454,10 @@ Return Value:
     // Create the pen and select it.
     //
 
-    if ((SnFlasherOn != FALSE) || (BlackOutFlasher != FALSE)) {
+    if ((Screen->FlasherOn != FALSE) || (BlackOutFlasher != FALSE)) {
         PenStyle = PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND;
         BrushStyle.lbStyle = BS_SOLID;
-        if (SnFlasherOn != FALSE) {
+        if (Screen->FlasherOn != FALSE) {
             BrushStyle.lbColor = RGB(190, 0, 0);
 
         } else {
@@ -1432,8 +1472,8 @@ Return Value:
         }
 
         OriginalPen = SelectObject(Dc, Pen);
-        MoveToEx(Dc, SnFlasherX, SnFlasherY, NULL);
-        LineTo(Dc, SnFlasherX, SnFlasherY);
+        MoveToEx(Dc, Screen->FlasherX, Screen->FlasherY, NULL);
+        LineTo(Dc, Screen->FlasherX, Screen->FlasherY);
 
         //
         // Return to the original pen and destroy this one.
@@ -1448,6 +1488,7 @@ Return Value:
 
 VOID
 SnpDrawShootingStar (
+    PSTARRY_SCREEN Screen,
     ULONG TimeElapsed,
     HDC Dc
     )
@@ -1461,10 +1502,14 @@ Routine Description:
 
 Arguments:
 
+    Screen - Supplies the context for this screen.
+
     TimeElapsed - Supplies the time elapsed since the last update, in
         milliseconds.
 
     Dc - Supplies the context to draw the flasher on.
+
+    Screen - Supplies the context for this screen.
 
 Return Value:
 
@@ -1489,7 +1534,7 @@ Return Value:
 
     BackgroundPen = NULL;
     Pen = NULL;
-    MaxStarY = SnScreenHeight - (SnScreenHeight *
+    MaxStarY = Screen->Height - (Screen->Height *
                                  SnBuildingHeightPercent / 100 / TILE_HEIGHT);
 
     //
@@ -1497,41 +1542,46 @@ Return Value:
     // has ended.
     //
 
-    if (SnShootingStarActive == FALSE) {
+    if (Screen->ShootingStarActive == FALSE) {
 
         //
         // If this causes the shooting star time to fire, set up the shooting
         // star.
         //
 
-        if (SnShootingStarTime <= TimeElapsed) {
-            SnShootingStarTime = 0;
-            SnShootingStarActive = TRUE;
+        if (Screen->ShootingStarTime <= TimeElapsed) {
+            Screen->ShootingStarTime = 0;
+            Screen->ShootingStarActive = TRUE;
 
             //
             // The shooting star should start somewhere between the top of the
             // buildings and the top of the screen.
             //
 
-            SnShootingStarStartX = rand() % SnScreenWidth;
+            Screen->ShootingStarStartX = rand() % Screen->Width;
             RandomY = (float)rand() / (float)RAND_MAX;
-            SnShootingStarStartY = (ULONG)(RandomY * RandomY * (float)MaxStarY);
-            SnShootingStarDuration = (rand() % SnMaxShootingStarDurationMs) + 1;
-            SnShootingStarVelocityX = (((float)rand() / (float)RAND_MAX) *
-                                       (2.0 * SnMaxShootingStarSpeedX)) -
-                                      SnMaxShootingStarSpeedX;
+            Screen->ShootingStarStartY =
+                                  (ULONG)(RandomY * RandomY * (float)MaxStarY);
 
-            SnShootingStarVelocityY = (((float)rand() / (float)RAND_MAX) *
-                                       (SnMaxShootingStarSpeedY -
-                                        SnMinShootingStarSpeedY)) +
-                                      SnMinShootingStarSpeedY;
+            Screen->ShootingStarDuration =
+                (rand() % SnMaxShootingStarDurationMs) + 1;
+
+            Screen->ShootingStarVelocityX =
+                (((float)rand() / (float)RAND_MAX) *
+                 (2.0 * SnMaxShootingStarSpeedX)) -
+                SnMaxShootingStarSpeedX;
+
+            Screen->ShootingStarVelocityY =
+                (((float)rand() / (float)RAND_MAX) *
+                 (SnMaxShootingStarSpeedY - SnMinShootingStarSpeedY)) +
+                SnMinShootingStarSpeedY;
 
         //
         // No shooting star now, keep counting down.
         //
 
         } else {
-            SnShootingStarTime -= TimeElapsed;
+            Screen->ShootingStarTime -= TimeElapsed;
             return;
         }
     }
@@ -1545,8 +1595,8 @@ Return Value:
     BrushStyle.lbStyle = BS_SOLID;
     BrushStyle.lbColor = RGB(100, 0, 0);
     BrushStyle.lbHatch = 0;
-    LineWidth = (ULONG)(SnShootingStarTime * SnMaxShootingStarWidth /
-                        SnShootingStarDuration);
+    LineWidth = (ULONG)(Screen->ShootingStarTime * SnMaxShootingStarWidth /
+                        Screen->ShootingStarDuration);
 
     Pen = ExtCreatePen(PenStyle, LineWidth, &BrushStyle, 0, NULL);
     if (Pen == NULL) {
@@ -1565,24 +1615,26 @@ Return Value:
     // location.
     //
 
-    CurrentX = SnShootingStarStartX +
-               ((float)SnShootingStarTime * SnShootingStarVelocityX);
+    CurrentX = Screen->ShootingStarStartX +
+               ((float)Screen->ShootingStarTime *
+                Screen->ShootingStarVelocityX);
 
-    CurrentY = SnShootingStarStartY +
-               ((float)SnShootingStarTime * SnShootingStarVelocityY);
+    CurrentY = Screen->ShootingStarStartY +
+               ((float)Screen->ShootingStarTime *
+                Screen->ShootingStarVelocityY);
 
     OriginalPen = SelectObject(Dc, Pen);
-    if (SnShootingStarTime < SnShootingStarDuration) {
-        NewX = CurrentX + ((float)TimeElapsed * SnShootingStarVelocityX);
-        NewY = CurrentY + ((float)TimeElapsed * SnShootingStarVelocityY);
+    if (Screen->ShootingStarTime < Screen->ShootingStarDuration) {
+        NewX = CurrentX + ((float)TimeElapsed * Screen->ShootingStarVelocityX);
+        NewY = CurrentY + ((float)TimeElapsed * Screen->ShootingStarVelocityY);
 
         //
         // If the shooting star is about to fall behind a building, cut it off
         // now. Otherwise, draw it.
         //
 
-        if (SnpGetTopBuilding(NewX, NewY) != -1) {
-            SnShootingStarTime = SnShootingStarDuration;
+        if (SnpGetTopBuilding(Screen, NewX, NewY) != -1) {
+            Screen->ShootingStarTime = Screen->ShootingStarDuration;
 
         } else {
             MoveToEx(Dc, CurrentX, CurrentY, NULL);
@@ -1595,7 +1647,11 @@ Return Value:
     //
 
     SelectObject(Dc, BackgroundPen);
-    MoveToEx(Dc, SnShootingStarStartX, SnShootingStarStartY, NULL);
+    MoveToEx(Dc,
+             Screen->ShootingStarStartX,
+             Screen->ShootingStarStartY,
+             NULL);
+
     LineTo(Dc, CurrentX, CurrentY);
     SelectObject(Dc, OriginalPen);
 
@@ -1604,8 +1660,8 @@ Return Value:
     // update time.
     //
 
-    if (SnShootingStarTime < SnShootingStarDuration) {
-        SnShootingStarTime += TimeElapsed;
+    if (Screen->ShootingStarTime < Screen->ShootingStarDuration) {
+        Screen->ShootingStarTime += TimeElapsed;
 
     //
     // The shooting star is sadly over. Reset the counters and patiently wait
@@ -1613,8 +1669,8 @@ Return Value:
     //
 
     } else {
-        SnShootingStarActive = FALSE;
-        SnShootingStarTime = rand() % SnMaxShootingStarPeriodMs;
+        Screen->ShootingStarActive = FALSE;
+        Screen->ShootingStarTime = rand() % SnMaxShootingStarPeriodMs;
     }
 
 DrawShootingStarEnd:
