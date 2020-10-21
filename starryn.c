@@ -102,6 +102,22 @@ typedef struct _STARRY_SCREEN {
 // -------------------------------------------------------- Function Prototypes
 //
 
+BOOL
+MonitorCountProc (
+    HMONITOR Monitor,
+    HDC Dc,
+    LPRECT Rect,
+    LPARAM User
+    );
+
+BOOL
+MonitorEnumerationProc (
+    HMONITOR Monitor,
+    HDC Dc,
+    LPRECT Rect,
+    LPARAM User
+    );
+
 LRESULT
 DLLEXPORT
 WINAPI
@@ -377,6 +393,7 @@ Return Value:
     WNDCLASS Class;
     BOOLEAN Configure;
     MSG Message;
+    ULONG MonitorCount;
     HWND Parent;
     RECT ParentRect;
     ULONG Properties;
@@ -502,18 +519,49 @@ Return Value:
                                 NULL);
 
     } else {
-        Window = CreateWindowEx(WS_EX_TOPMOST,
-                                APPLICATION_NAME,
-                                APPLICATION_NAME,
-                                WS_VISIBLE | WS_POPUP,
-                                GetSystemMetrics(SM_XVIRTUALSCREEN),
-                                GetSystemMetrics(SM_YVIRTUALSCREEN),
-                                GetSystemMetrics(SM_CXVIRTUALSCREEN),
-                                GetSystemMetrics(SM_CYVIRTUALSCREEN),
-                                NULL,
-                                NULL,
-                                hInstance,
-                                NULL);
+
+        //
+        // Loop once to get the count of monitors.
+        //
+
+        MonitorCount = 0;
+        Result = EnumDisplayMonitors(NULL,
+                                     NULL,
+                                     MonitorCountProc,
+                                     (ULONG_PTR)&MonitorCount);
+
+
+        if (Result == FALSE) {
+            Return = 1;
+            goto WinMainEnd;
+        }
+
+        if (MonitorCount == 0) {
+            MonitorCount = 1;
+        }
+
+        SnScreens = calloc(MonitorCount, sizeof(STARRY_SCREEN));
+        if (SnScreens == NULL) {
+            Return = 1;
+            goto WinMainEnd;
+        }
+
+        SnScreenCount = MonitorCount;
+
+        //
+        // Loop through all the monitors again and create windows for each of
+        // them.
+        //
+
+        Result = EnumDisplayMonitors(NULL,
+                                     NULL,
+                                     MonitorEnumerationProc,
+                                     (ULONG_PTR)hInstance);
+
+        if (Result == FALSE) {
+            Return = 1;
+            goto WinMainEnd;
+        }
     }
 
     if (Window == NULL) {
@@ -540,7 +588,104 @@ Return Value:
 WinMainEnd:
     ShowCursor(1);
     UnregisterClass(APPLICATION_NAME, hInstance);
+    if (SnScreens != NULL) {
+        free(SnScreens);
+        SnScreens = NULL;
+    }
+
     return Return;
+}
+
+BOOL
+MonitorCountProc (
+    HMONITOR Monitor,
+    HDC Dc,
+    LPRECT Rect,
+    LPARAM User
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called once for each monitor in the system.
+
+Arguments:
+
+    Monitor - Supplies a pointer to monitor information.
+
+    Dc - Supplies a handle to the device context.
+
+    Rect - Supplies the monitor dimensions.
+
+    User - Supplies the user pointer passed to EnumDisplayMonitors(). In this
+        case, a pointer to a ULONG used to count the number of monitors.
+
+Return Value:
+
+    TRUE to continue the enumeration.
+
+    FALSE to stop enumerating.
+
+--*/
+
+{
+
+    PULONG Count;
+
+    Count = (PULONG)User;
+    *Count += 1;
+    return TRUE;
+}
+
+BOOL
+MonitorEnumerationProc (
+    HMONITOR Monitor,
+    HDC Dc,
+    LPRECT Rect,
+    LPARAM User
+    )
+
+/*++
+
+Routine Description:
+
+    This routine is called once for each monitor in the system.
+
+Arguments:
+
+    Monitor - Supplies a pointer to monitor information.
+
+    Dc - Supplies a handle to the device context.
+
+    Rect - Supplies the monitor dimensions.
+
+    User - Supplies the user pointer passed to EnumDisplayMonitors().
+
+Return Value:
+
+    TRUE to continue the enumeration.
+
+    FALSE to stop enumerating.
+
+--*/
+
+{
+
+    CreateWindowEx(WS_EX_TOPMOST,
+                   APPLICATION_NAME,
+                   APPLICATION_NAME,
+                   WS_VISIBLE | WS_POPUP,
+                   Rect->left,
+                   Rect->top,
+                   Rect->right - Rect->left,
+                   Rect->bottom - Rect->top,
+                   NULL,
+                   NULL,
+                   (HINSTANCE)User,
+                   NULL);
+
+    return TRUE;
 }
 
 LRESULT
