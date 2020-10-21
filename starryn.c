@@ -75,7 +75,7 @@ typedef struct _BUILDING {
     ULONG Style;
     ULONG Height;
     ULONG Width;
-    ULONG BeginX;
+    LONG BeginX;
     ULONG ZCoordinate;
 } BUILDING, *PBUILDING;
 
@@ -97,6 +97,7 @@ typedef struct _STARRY_SCREEN {
     ULONG ShootingStarStartY;
     float ShootingStarVelocityX;
     float ShootingStarVelocityY;
+    ULONG PanTime;
 } STARRY_SCREEN, *PSTARRY_SCREEN;
 
 //
@@ -196,7 +197,7 @@ SnpDrawBuildings (
 ULONG
 SnpGetTopBuilding (
     PSTARRY_SCREEN Screen,
-    ULONG ScreenX,
+    LONG ScreenX,
     ULONG ScreenY
     );
 
@@ -210,6 +211,7 @@ VOID
 SnpDrawFlasher (
     PSTARRY_SCREEN Screen,
     ULONG TimeElapsed,
+    BOOL ForceClear,
     HDC Dc
     );
 
@@ -218,6 +220,19 @@ SnpDrawShootingStar (
     PSTARRY_SCREEN Screen,
     ULONG TimeElapsed,
     HDC Dc
+    );
+
+VOID
+SnpMoveLandscape (
+    PSTARRY_SCREEN Screen,
+    ULONG TimeElapsed,
+    HDC Dc
+    );
+
+VOID
+SnpInitializeBuildingDimensions (
+    PSTARRY_SCREEN Screen,
+    PBUILDING Building
     );
 
 BOOLEAN
@@ -264,6 +279,7 @@ float SnMaxShootingStarSpeedX = 3.0;
 float SnMinShootingStarSpeedY = 0.1;
 float SnMaxShootingStarSpeedY = 1.0;
 ULONG SnMaxShootingStarWidth = 4;
+ULONG PanPeriodMs = 5 * 60000;
 
 //
 // Starry Night global state.
@@ -1047,10 +1063,9 @@ Return Value:
     ULONG FlasherBuilding;
     ULONG Index2;
     ULONG MaxActualHeight;
-    ULONG MaxHeight;
-    ULONG MinX;
+    LONG MaxX;
+    LONG MinX;
     ULONG MinXIndex;
-    float RandomHeight;
     BOOL Result;
     PSTARRY_SCREEN Screen;
     BUILDING Swap;
@@ -1091,13 +1106,6 @@ Return Value:
     Screen->Height = WindowSize.bottom - WindowSize.top;
 
     //
-    // Determine the maximum height of a building.
-    //
-
-    MaxHeight =
-              ((Screen->Height * SnBuildingHeightPercent) / 100) / TILE_HEIGHT;
-
-    //
     // Allocate and initialize the buildings.
     //
 
@@ -1109,27 +1117,13 @@ Return Value:
 
     Screen->Buildings = Buildings;
     MaxActualHeight = 0;
+    MaxX = Screen->Width + (SnMaxBuildingWidth * TILE_WIDTH);
     for (BuildingIndex = 0;
          BuildingIndex < SnBuildingCount;
          BuildingIndex += 1) {
 
-        Buildings[BuildingIndex].Style = rand() % BUILDING_STYLE_COUNT;
-
-        //
-        // Squaring the random height makes for a more interesting distribution
-        // of buildings.
-        //
-
-        RandomHeight = (float)rand() / (float)RAND_MAX;
-        Buildings[BuildingIndex].Height =
-                               RandomHeight * RandomHeight * (float)MaxHeight;
-
-        Buildings[BuildingIndex].Height += 1;
-        Buildings[BuildingIndex].Width =
-                          SnMinBuildingWidth +
-                          (rand() % (SnMaxBuildingWidth - SnMinBuildingWidth));
-
-        Buildings[BuildingIndex].BeginX = rand() % Screen->Width;
+        SnpInitializeBuildingDimensions(Screen, &Buildings[BuildingIndex]);
+        Buildings[BuildingIndex].BeginX = rand() % MaxX;
         Buildings[BuildingIndex].ZCoordinate = BuildingIndex + 1;
 
         //
@@ -1170,7 +1164,7 @@ Return Value:
         // Find the building with the lowest X coordinate.
         //
 
-        MinX = Screen->Width;
+        MinX = MaxX;
         MinXIndex = -1;
         for (Index2 = BuildingIndex; Index2 < SnBuildingCount; Index2 += 1) {
             if (Buildings[Index2].BeginX < MinX) {
@@ -1257,10 +1251,10 @@ Return Value:
 
 {
 
-    if (Screen->Buildings != NULL) {
-        free(Screen->Buildings);
-        Screen->Buildings = NULL;
-    }
+    //
+    // Don't bother freeing the buildings since doing so races with the timer.
+    // But clear out the window.
+    //
 
     Screen->Window = NULL;
     return;
@@ -1430,7 +1424,8 @@ Return Value:
     SnpDrawBuildings(Screen, Dc);
     SnpDrawRain(Screen, Dc);
     SnpDrawShootingStar(Screen, Microseconds / 1000, Dc);
-    SnpDrawFlasher(Screen, Microseconds / 1000, Dc);
+    SnpDrawFlasher(Screen, Microseconds / 1000, FALSE, Dc);
+    SnpMoveLandscape(Screen, Microseconds / 1000, Dc);
     ReleaseDC(Screen->Window, Dc);
     return Result;
 }
@@ -1561,7 +1556,7 @@ Return Value:
 ULONG
 SnpGetTopBuilding (
     PSTARRY_SCREEN Screen,
-    ULONG ScreenX,
+    LONG ScreenX,
     ULONG ScreenY
     )
 
@@ -1590,7 +1585,7 @@ Return Value:
 
     PBUILDING Building;
     ULONG BuildingIndex;
-    ULONG BuildingRight;
+    LONG BuildingRight;
     ULONG BuildingTop;
     ULONG FrontBuilding;
     ULONG MaxZ;
@@ -1714,6 +1709,7 @@ VOID
 SnpDrawFlasher (
     PSTARRY_SCREEN Screen,
     ULONG TimeElapsed,
+    BOOL ForceClear,
     HDC Dc
     )
 
@@ -1729,6 +1725,9 @@ Arguments:
 
     TimeElapsed - Supplies the time elapsed since the last update, in
         milliseconds.
+
+    ForceClear - Supplies a boolean indicating the caller wants to black out
+        the flasher.
 
     Dc - Supplies the context to draw the flasher on.
 
@@ -1747,8 +1746,7 @@ Return Value:
     HPEN Pen;
     DWORD PenStyle;
 
-    BlackOutFlasher = FALSE;
-
+    BlackOutFlasher = ForceClear;
     if (SnFlasherEnabled == FALSE) {
         Screen->FlasherOn = FALSE;
         return;
@@ -1773,7 +1771,7 @@ Return Value:
     if ((Screen->FlasherOn != FALSE) || (BlackOutFlasher != FALSE)) {
         PenStyle = PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND;
         BrushStyle.lbStyle = BS_SOLID;
-        if (Screen->FlasherOn != FALSE) {
+        if (BlackOutFlasher == FALSE) {
             BrushStyle.lbColor = RGB(190, 0, 0);
 
         } else {
@@ -1997,6 +1995,163 @@ DrawShootingStarEnd:
     if (BackgroundPen != NULL) {
         DeleteObject(BackgroundPen);
     }
+
+    return;
+}
+
+VOID
+SnpMoveLandscape (
+    PSTARRY_SCREEN Screen,
+    ULONG TimeElapsed,
+    HDC Dc
+    )
+
+/*++
+
+Routine Description:
+
+    This routine ever so slowly creeps the landscape left.
+
+Arguments:
+
+    Screen - Supplies the context for this screen.
+
+    TimeElapsed - Supplies the time elapsed since the last update, in
+        milliseconds.
+
+    Dc - Supplies the context to draw the flasher on.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    PBUILDING Buildings;
+    ULONG FlasherBuilding;
+    ULONG Index;
+    ULONG MaxActualHeight;
+
+    if (PanPeriodMs == 0) {
+        return;
+    }
+
+    Screen->PanTime += TimeElapsed;
+    if (Screen->PanTime < PanPeriodMs) {
+        return;
+    }
+
+    Screen->PanTime -= PanPeriodMs;
+    if (SnBuildingCount == 0) {
+        return;
+    }
+
+    Buildings = Screen->Buildings;
+
+    //
+    // Black out the flasher so there aren't dumb artifacts.
+    //
+
+    SnpDrawFlasher(Screen, 0, TRUE, Dc);
+
+    //
+    // Shift all the buildings left.
+    //
+
+    for (Index = 0; Index < SnBuildingCount; Index += 1) {
+        Buildings[Index].BeginX -= 1;
+    }
+
+    Screen->FlasherX -= 1;
+
+    //
+    // If the leftmost building is still on the screen, work is done.
+    //
+
+    if (Buildings[0].BeginX + (LONG)(Buildings[0].Width * TILE_WIDTH) > 0) {
+        return;
+    }
+
+    //
+    // Shift the array down, and add a new building on the right.
+    //
+
+    for (Index = 0; Index < SnBuildingCount - 1; Index += 1) {
+        memcpy(&(Buildings[Index]), &(Buildings[Index + 1]), sizeof(BUILDING));
+    }
+
+    Buildings[Index].BeginX = Screen->Width - 1;
+    SnpInitializeBuildingDimensions(Screen, &(Buildings[Index]));
+
+    //
+    // Recompute where the flasher goes in case a new tall building came in.
+    //
+
+    FlasherBuilding = 0;
+    MaxActualHeight = 0;
+    for (Index = 0; Index < SnBuildingCount; Index += 1) {
+        if (Buildings[Index].Height > MaxActualHeight) {
+            MaxActualHeight = Buildings[Index].Height;
+            FlasherBuilding = Index;
+        }
+    }
+
+    Screen->FlasherX = Buildings[FlasherBuilding].BeginX +
+                       (Buildings[FlasherBuilding].Width * TILE_WIDTH / 2);
+
+    Screen->FlasherY = Screen->Height -
+                       (Buildings[FlasherBuilding].Height * TILE_HEIGHT);
+
+    return;
+}
+
+VOID
+SnpInitializeBuildingDimensions (
+    PSTARRY_SCREEN Screen,
+    PBUILDING Building
+    )
+
+/*++
+
+Routine Description:
+
+    This routine initializes the given building to a random style, height, and
+    width.
+
+Arguments:
+
+    Screen - Supplies a pointer to the screen context.
+
+    Building - Supplies the building to initialize.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    ULONG MaxHeight;
+    float RandomHeight;
+
+    Building->Style = rand() % BUILDING_STYLE_COUNT;
+    MaxHeight =
+              ((Screen->Height * SnBuildingHeightPercent) / 100) / TILE_HEIGHT;
+
+
+    //
+    // Squaring the random height makes for a more interesting distribution
+    // of buildings.
+    //
+
+    RandomHeight = (float)rand() / (float)RAND_MAX;
+    Building->Height = RandomHeight * RandomHeight * (float)MaxHeight;
+    Building->Height += 1;
+    Building->Width = SnMinBuildingWidth +
+                      (rand() % (SnMaxBuildingWidth - SnMinBuildingWidth));
 
     return;
 }
