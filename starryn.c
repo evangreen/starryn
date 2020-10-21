@@ -123,12 +123,24 @@ ScreenSaverConfigureDialog (
     );
 
 BOOLEAN
-SnInitialize (
+SnInitializeGlobalState (
+    VOID
+    );
+
+BOOLEAN
+SnInitializeScreen (
+    PSTARRY_SCREEN Screen,
     HWND Window
     );
 
 VOID
-SnDestroy (
+SnDestroyGlobalState (
+    VOID
+    );
+
+VOID
+SnDestroyScreen (
+    PSTARRY_SCREEN Screen
     );
 
 VOID
@@ -557,7 +569,12 @@ Return Value:
 
     switch (Message) {
     case WM_CREATE:
-        Result = SnInitialize(hWnd);
+        Result = SnInitializeGlobalState();
+        if (Result == FALSE) {
+            PostQuitMessage(0);
+        }
+
+        Result = SnInitializeScreen(&SnScreen, hWnd);
         if (Result == FALSE) {
             PostQuitMessage(0);
         }
@@ -573,7 +590,8 @@ Return Value:
         break;
 
     case WM_DESTROY:
-        SnDestroy();
+        SnDestroyScreen(&SnScreen);
+        SnDestroyGlobalState();
         PostQuitMessage(0);
         return 0;
 
@@ -766,7 +784,75 @@ Return Value:
 //
 
 BOOLEAN
-SnInitialize (
+SnInitializeGlobalState (
+    VOID
+    )
+
+/*++
+
+Routine Description:
+
+    This routine initializes application-wide state for the Starry Night
+    screensaver.
+
+Arguments:
+
+    None.
+
+Return Value:
+
+    TRUE on success.
+
+    FALSE on failure.
+
+--*/
+
+{
+
+    BOOL Result;
+
+    srand(time(NULL));
+
+    //
+    // Sanity check.
+    //
+
+    if (SnMinBuildingWidth == 0) {
+        SnMinBuildingWidth = 1;
+    }
+
+    if (SnMaxBuildingWidth < SnMinBuildingWidth) {
+        SnMaxBuildingWidth = SnMinBuildingWidth + 1;
+    }
+
+    if (SnFlasherPeriodMs == 0) {
+        SnFlasherPeriodMs = 1;
+    }
+
+    //
+    // Kick off the timer.
+    //
+
+    SnTimer = timeSetEvent(SnTimerRateMs,
+                           SnTimerRateMs,
+                           SnTimerEvent,
+                           SnTimerRateMs * 1000,
+                           TIME_PERIODIC | TIME_CALLBACK_FUNCTION);
+
+    if (SnTimer == 0) {
+        Result = FALSE;
+        goto InitializeGlobalStateEnd;
+    }
+
+    Result = TRUE;
+
+InitializeGlobalStateEnd:
+    return Result;
+}
+
+BOOLEAN
+SnInitializeScreen (
+    PSTARRY_SCREEN Screen,
     HWND Window
     )
 
@@ -777,6 +863,8 @@ Routine Description:
     This routine initializes the Starry Night screen saver.
 
 Arguments:
+
+    Screen - Supplies a pointer to the screen to initialize.
 
     Window - Supplies a pointer to the window being initialized.
 
@@ -803,17 +891,17 @@ Return Value:
     BUILDING Swap;
     RECT WindowSize;
 
-    srand(time(NULL));
-
-    SnScreen.Clear = TRUE;
-    SnScreen.ShootingStarVelocityX = 0.0;
-    SnScreen.ShootingStarVelocityY = 0.0;
+    Buildings = NULL;
+    memset(Screen, 0, sizeof(*Screen));
+    Screen->Clear = TRUE;
+    Screen->ShootingStarVelocityX = 0.0;
+    Screen->ShootingStarVelocityY = 0.0;
 
     //
     // Save the window.
     //
 
-    SnScreen.Window = Window;
+    Screen->Window = Window;
 
     //
     // Determine the size of the screen.
@@ -821,34 +909,18 @@ Return Value:
 
     Result = GetWindowRect(Window, &WindowSize);
     if (Result == FALSE) {
-        goto InitializeEnd;
+        goto InitializeScreenEnd;
     }
 
-    SnScreen.Width = WindowSize.right - WindowSize.left;
-    SnScreen.Height = WindowSize.bottom - WindowSize.top;
+    Screen->Width = WindowSize.right - WindowSize.left;
+    Screen->Height = WindowSize.bottom - WindowSize.top;
 
     //
     // Determine the maximum height of a building.
     //
 
     MaxHeight =
-            ((SnScreen.Height * SnBuildingHeightPercent) / 100) / TILE_HEIGHT;
-
-    //
-    // Sanity check.
-    //
-
-    if (SnMinBuildingWidth == 0) {
-        SnMinBuildingWidth = 1;
-    }
-
-    if (SnMaxBuildingWidth < SnMinBuildingWidth) {
-        SnMaxBuildingWidth = SnMinBuildingWidth + 1;
-    }
-
-    if (SnFlasherPeriodMs == 0) {
-        SnFlasherPeriodMs = 1;
-    }
+              ((Screen->Height * SnBuildingHeightPercent) / 100) / TILE_HEIGHT;
 
     //
     // Allocate and initialize the buildings.
@@ -857,10 +929,10 @@ Return Value:
     Buildings = malloc(sizeof(BUILDING) * SnBuildingCount);
     if (Buildings == NULL) {
         Result = FALSE;
-        goto InitializeEnd;
+        goto InitializeScreenEnd;
     }
 
-    SnScreen.Buildings = Buildings;
+    Screen->Buildings = Buildings;
     MaxActualHeight = 0;
     for (BuildingIndex = 0;
          BuildingIndex < SnBuildingCount;
@@ -882,7 +954,7 @@ Return Value:
                           SnMinBuildingWidth +
                           (rand() % (SnMaxBuildingWidth - SnMinBuildingWidth));
 
-        Buildings[BuildingIndex].BeginX = rand() % SnScreen.Width;
+        Buildings[BuildingIndex].BeginX = rand() % Screen->Width;
         Buildings[BuildingIndex].ZCoordinate = BuildingIndex + 1;
 
         //
@@ -900,13 +972,13 @@ Return Value:
     // top of the tallest building.
     //
 
-    SnScreen.FlasherOn = FALSE;
-    SnScreen.FlasherTime = rand() % SnFlasherPeriodMs;
-    SnScreen.FlasherX = Buildings[FlasherBuilding].BeginX +
-                        (Buildings[FlasherBuilding].Width * TILE_WIDTH / 2);
+    Screen->FlasherOn = FALSE;
+    Screen->FlasherTime = rand() % SnFlasherPeriodMs;
+    Screen->FlasherX = Buildings[FlasherBuilding].BeginX +
+                       (Buildings[FlasherBuilding].Width * TILE_WIDTH / 2);
 
-    SnScreen.FlasherY = SnScreen.Height -
-                        (Buildings[FlasherBuilding].Height * TILE_HEIGHT);
+    Screen->FlasherY = Screen->Height -
+                       (Buildings[FlasherBuilding].Height * TILE_HEIGHT);
 
     //
     // Sort the buildings by X coordinate.
@@ -920,7 +992,7 @@ Return Value:
         // Find the building with the lowest X coordinate.
         //
 
-        MinX = SnScreen.Width;
+        MinX = Screen->Width;
         MinXIndex = -1;
         for (Index2 = BuildingIndex; Index2 < SnBuildingCount; Index2 += 1) {
             if (Buildings[Index2].BeginX < MinX) {
@@ -940,28 +1012,13 @@ Return Value:
         }
     }
 
-    //
-    // Kick off the timer.
-    //
-
-    SnTimer = timeSetEvent(SnTimerRateMs,
-                           SnTimerRateMs,
-                           SnTimerEvent,
-                           SnTimerRateMs * 1000,
-                           TIME_PERIODIC | TIME_CALLBACK_FUNCTION);
-
-    if (SnTimer == 0) {
-        Result = FALSE;
-        goto InitializeEnd;
-    }
-
     Result = TRUE;
 
-InitializeEnd:
+InitializeScreenEnd:
     if (Result == FALSE) {
         if (Buildings != NULL) {
             free(Buildings);
-            SnScreen.Buildings = NULL;
+            Screen->Buildings = NULL;
         }
     }
 
@@ -969,7 +1026,8 @@ InitializeEnd:
 }
 
 VOID
-SnDestroy (
+SnDestroyGlobalState (
+    VOID
     )
 
 /*++
@@ -992,11 +1050,38 @@ Return Value:
 
     if (SnTimer != 0) {
         timeKillEvent(SnTimer);
+        SnTimer = 0;
     }
 
-    if (SnScreen.Buildings != NULL) {
-        free(SnScreen.Buildings);
-        SnScreen.Buildings = NULL;
+    return;
+}
+
+VOID
+SnDestroyScreen (
+    PSTARRY_SCREEN Screen
+    )
+
+/*++
+
+Routine Description:
+
+    This routine destroys a single screen.
+
+Arguments:
+
+    Screen - Supplies a pointer to the screen to tear down.
+
+Return Value:
+
+    None.
+
+--*/
+
+{
+
+    if (Screen->Buildings != NULL) {
+        free(Screen->Buildings);
+        Screen->Buildings = NULL;
     }
 
     return;
