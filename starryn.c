@@ -778,7 +778,7 @@ Routine Description:
 
 Arguments:
 
-    None.
+    Window - Supplies a pointer to the window being initialized.
 
 Return Value:
 
@@ -846,6 +846,10 @@ Return Value:
         SnMaxBuildingWidth = SnMinBuildingWidth + 1;
     }
 
+    if (SnFlasherPeriodMs == 0) {
+        SnFlasherPeriodMs = 1;
+    }
+
     //
     // Allocate and initialize the buildings.
     //
@@ -897,7 +901,7 @@ Return Value:
     //
 
     SnScreen.FlasherOn = FALSE;
-    SnScreen.FlasherTime = rand() % (SnFlasherPeriodMs + 1);
+    SnScreen.FlasherTime = rand() % SnFlasherPeriodMs;
     SnScreen.FlasherX = Buildings[FlasherBuilding].BeginX +
                         (Buildings[FlasherBuilding].Width * TILE_WIDTH / 2);
 
