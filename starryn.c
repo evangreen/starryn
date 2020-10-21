@@ -497,6 +497,11 @@ Return Value:
     // Create the window.
     //
 
+    if (SnInitializeGlobalState() == FALSE) {
+        Return = 1;
+        goto WinMainEnd;
+    }
+
     if (ScreenSaverWindowed != FALSE) {
         if (Parent != NULL) {
             Properties = WS_VISIBLE | WS_CHILD;
@@ -586,6 +591,7 @@ Return Value:
     }
 
 WinMainEnd:
+    SnDestroyGlobalState();
     ShowCursor(1);
     UnregisterClass(APPLICATION_NAME, hInstance);
     if (SnScreens != NULL) {
@@ -734,11 +740,6 @@ Return Value:
 
     switch (Message) {
     case WM_CREATE:
-        Result = SnInitializeGlobalState();
-        if (Result == FALSE) {
-            PostQuitMessage(0);
-        }
-
         Result = SnInitializeScreen(hWnd);
         if (Result == FALSE) {
             PostQuitMessage(0);
@@ -755,13 +756,6 @@ Return Value:
         break;
 
     case WM_DESTROY:
-
-        //
-        // Destroy global state before the screen so the timer isn't running
-        // when the buildings are free.
-        //
-
-        SnDestroyGlobalState();
         SnDestroyScreen(SnpFindScreenForWindow(hWnd, FALSE));
         PostQuitMessage(0);
         return 0;
@@ -1395,13 +1389,12 @@ Return Value:
 
 {
 
-    HBRUSH BackgroundBrush;
     HDC Dc;
-    HBRUSH OriginalBrush;
     BOOLEAN Result;
+    RECT ScreenRect;
 
     if ((Microseconds == 0) || (Screen->Window == NULL)) {
-        return FALSE;
+        return TRUE;
     }
 
     Dc = GetDC(Screen->Window);
@@ -1422,11 +1415,8 @@ Return Value:
         // Wipe the screen.
         //
 
-        BackgroundBrush = CreateSolidBrush(SnBackground);
-        OriginalBrush = SelectObject(Dc, BackgroundBrush);
-        ExtFloodFill(Dc, 0, 0, GetPixel(Dc, 0, 0), FLOODFILLSURFACE);
-        SelectObject(Dc, OriginalBrush);
-        DeleteObject(OriginalBrush);
+        GetClientRect(Screen->Window, &ScreenRect);
+        FillRect(Dc, &ScreenRect, (HBRUSH)GetStockObject(BLACK_BRUSH));
         Screen->Clear = FALSE;
     }
 
