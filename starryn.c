@@ -90,6 +90,7 @@ typedef struct _STARRY_SCREEN {
     ULONG FlasherX;
     ULONG FlasherY;
     ULONG FlasherTime;
+    ULONG FlasherDuration;
     ULONG ShootingStarTime;
     ULONG ShootingStarDuration;
     ULONG ShootingStarStartX;
@@ -256,6 +257,7 @@ ULONG SnMaxRainWidth = 16;
 ULONG SnRainDropsPerUpdate = 15;
 BOOLEAN SnFlasherEnabled = TRUE;
 ULONG SnFlasherPeriodMs = 1700;
+ULONG SnFlasherVariationMs = 20;
 ULONG SnMaxShootingStarPeriodMs = 25000;
 ULONG SnMaxShootingStarDurationMs = 1000;
 float SnMaxShootingStarSpeedX = 3.0;
@@ -1147,6 +1149,9 @@ Return Value:
 
     Screen->FlasherOn = FALSE;
     Screen->FlasherTime = rand() % SnFlasherPeriodMs;
+    Screen->FlasherDuration = SnFlasherPeriodMs +
+                              (rand() % SnFlasherVariationMs);
+
     Screen->FlasherX = Buildings[FlasherBuilding].BeginX +
                        (Buildings[FlasherBuilding].Width * TILE_WIDTH / 2);
 
@@ -1750,8 +1755,8 @@ Return Value:
     }
 
     Screen->FlasherTime += TimeElapsed;
-    if (Screen->FlasherTime >= SnFlasherPeriodMs) {
-        Screen->FlasherTime -= SnFlasherPeriodMs;
+    if (Screen->FlasherTime >= Screen->FlasherDuration) {
+        Screen->FlasherTime -= Screen->FlasherDuration;
         if (Screen->FlasherOn == FALSE) {
             Screen->FlasherOn = TRUE;
 
